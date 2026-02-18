@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+leads_huge.csv
+leads_output.csv
+outreach_history.json
+.DS_Store

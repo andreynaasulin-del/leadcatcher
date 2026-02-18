@@ -1,0 +1,450 @@
+import { CreditLead, LeadStore } from './models';
+import { maskPhone } from './privacy';
+import { loadStore } from './store';
+import * as fs from 'fs';
+
+function getIntentBadge(intent: string): { label: string; color: string } {
+    const map: Record<string, { label: string; color: string }> = {
+        mortgage: { label: 'Ипотека', color: '#00ffa3' },
+        auto: { label: 'Автокредит', color: '#00d1ff' },
+        business: { label: 'Бизнес', color: '#ff7e3e' },
+        consumer: { label: 'Потребительский', color: '#ffb83e' },
+        refinance: { label: 'Рефинанс', color: '#a855f7' },
+        unknown: { label: 'Не определен', color: '#666' },
+    };
+    return map[intent] || map.unknown;
+}
+
+function getSourceBadge(source: string): { label: string; color: string } {
+    const map: Record<string, { label: string; color: string }> = {
+        telegram: { label: 'TG', color: '#0088cc' },
+        avito: { label: 'Avito', color: '#00aaff' },
+        maps: { label: 'Maps', color: '#34a853' },
+        vk: { label: 'VK', color: '#4c75a3' },
+        google: { label: 'Google', color: '#ea4335' },
+    };
+    return map[source] || { label: source.toUpperCase(), color: '#666' };
+}
+
+function getStatusColor(status: string): string {
+    const map: Record<string, string> = {
+        hot: '#ff4757', new: '#00ffa3', processing: '#ffb83e',
+        rejected: '#666', contacted: '#0088cc',
+    };
+    return map[status] || '#666';
+}
+
+function escapeHtml(text: string): string {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getLeadCardHtml(lead: CreditLead): string {
+    const intent = getIntentBadge(lead.intent_type);
+    const src = getSourceBadge(lead.source);
+    const statusColor = getStatusColor(lead.status);
+    const displayPhone = lead.phone_masked || maskPhone(lead.phone) || 'Нет телефона';
+    const urgencyWidth = lead.urgency * 10;
+    const urgencyColor = lead.urgency >= 8 ? '#ff4757' : lead.urgency >= 5 ? '#ffb83e' : '#00ffa3';
+
+    const painItems = Array.isArray(lead.pain_points)
+        ? lead.pain_points
+        : lead.pain_points
+            ? [lead.pain_points]
+            : [];
+
+    const painHtml = painItems
+        .map(p => `<div class="pain-item">${escapeHtml(p)}</div>`)
+        .join('');
+
+    const whatsappPhone = lead.phone ? lead.phone.replace(/\D/g, '') : '';
+    const whatsappMsg = encodeURIComponent(lead.suggested_response || '');
+    const whatsappLink = whatsappPhone
+        ? `https://wa.me/${whatsappPhone}?text=${whatsappMsg}`
+        : '';
+
+    const sourceLink = lead.url
+        ? `<a href="${escapeHtml(lead.url)}" target="_blank" class="source-link">${lead.source === 'telegram' ? escapeHtml(lead.chat_name || 'TG Chat') : 'Источник'}</a>`
+        : '';
+
+    const safeUniqueKey = escapeHtml(lead.unique_key);
+    const searchData = escapeHtml(`${lead.name} ${lead.region || ''} ${lead.intent_type} ${lead.amount || ''} ${lead.ai_summary}`);
+
+    return `
+    <div class="lead-card" data-id="${safeUniqueKey}" data-status="${lead.status}"
+         data-search="${searchData}">
+        <div class="card-header">
+            <div class="badges">
+                <span class="badge status-badge" style="background:${statusColor}">${lead.status.toUpperCase()}</span>
+                <span class="badge intent-badge" style="background:${intent.color};color:#000">${intent.label}</span>
+                <span class="badge source-badge" style="background:${src.color}">${src.label}</span>
+            </div>
+            <div class="score-circle" style="--score-color:${lead.score >= 60 ? '#ff4757' : lead.score >= 30 ? '#ffb83e' : '#666'}">
+                ${lead.score}
+            </div>
+        </div>
+
+        <div class="lead-name">${escapeHtml(lead.name)}</div>
+
+        <div class="lead-meta">
+            ${lead.amount ? `<span class="meta-tag amount-tag">${escapeHtml(lead.amount)}</span>` : ''}
+            ${lead.region ? `<span class="meta-tag region-tag">${escapeHtml(lead.region)}</span>` : ''}
+            <span class="meta-tag phone-tag">${escapeHtml(displayPhone)}</span>
+        </div>
+
+        <div class="urgency-row">
+            <span class="urgency-label">Срочность: ${lead.urgency}/10</span>
+            <div class="urgency-bar">
+                <div class="urgency-fill" style="width:${urgencyWidth}%;background:${urgencyColor}"></div>
+            </div>
+        </div>
+
+        ${painHtml ? `<div class="pain-section"><div class="pain-title">Боли клиента:</div>${painHtml}</div>` : ''}
+
+        <div class="ai-summary">${escapeHtml(lead.ai_summary)}</div>
+
+        ${lead.suggested_response ? `<div class="response-box">${escapeHtml(lead.suggested_response)}</div>` : ''}
+
+        <div class="card-footer">
+            ${whatsappLink ? `
+            <a href="${whatsappLink}" target="_blank" class="whatsapp-btn"
+               onclick="markContacted('${safeUniqueKey}')">
+                WhatsApp
+            </a>` : ''}
+            ${sourceLink}
+            <button class="contacted-btn" onclick="markContacted('${safeUniqueKey}')">Связались</button>
+        </div>
+    </div>`;
+}
+
+export async function generateDashboard(store: LeadStore): Promise<void> {
+    const leads = store.leads;
+
+    const hot = leads.filter(l => l.status === 'hot').sort((a, b) => b.score - a.score);
+    const newLeads = leads.filter(l => l.status === 'new').sort((a, b) => b.score - a.score);
+    const processing = leads.filter(l => l.status === 'processing').sort((a, b) => b.score - a.score);
+    const all = [...leads].sort((a, b) => b.score - a.score);
+
+    const html = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credit Leads CRM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #020202;
+            --card: rgba(18, 18, 22, 0.7);
+            --accent: #00ffa3;
+            --accent-glow: rgba(0, 255, 163, 0.2);
+            --danger: #ff4757;
+            --danger-glow: rgba(255, 71, 87, 0.2);
+            --text-main: #ffffff;
+            --text-dim: #888888;
+            --glass: rgba(255, 255, 255, 0.02);
+            --border: rgba(255, 255, 255, 0.08);
+            --grad: linear-gradient(135deg, #00ffa3 0%, #00d1ff 100%);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); color: var(--text-main); font-family: 'Outfit', sans-serif;
+            overflow-x: hidden; min-height: 100vh;
+            background-image:
+                radial-gradient(circle at 10% 10%, rgba(0, 255, 163, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(0, 209, 255, 0.05) 0%, transparent 40%);
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 40px 20px; }
+
+        header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 40px; padding-bottom: 25px;
+            border-bottom: 1px solid var(--border); gap: 20px; flex-wrap: wrap;
+        }
+        .logo {
+            font-family: 'Space Grotesk', sans-serif; font-size: 2rem; font-weight: 800;
+            background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .stats-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .stat-box {
+            background: var(--glass); padding: 12px 20px; border-radius: 12px;
+            border: 1px solid var(--border); backdrop-filter: blur(10px); text-align: center;
+        }
+        .stat-num { font-size: 1.5rem; font-weight: 800; display: block; }
+        .stat-num.hot { color: var(--danger); }
+        .stat-num.total { color: var(--accent); }
+        .stat-num.today { color: #00d1ff; }
+        .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+
+        .tabs {
+            display: flex; gap: 8px; margin-bottom: 20px;
+            background: var(--glass); padding: 5px; border-radius: 14px;
+            border: 1px solid var(--border); width: fit-content; max-width: 100%;
+            overflow-x: auto; backdrop-filter: blur(10px);
+        }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            padding: 10px 18px; border: none; background: transparent;
+            color: var(--text-dim); cursor: pointer; border-radius: 10px;
+            font-weight: 600; transition: 0.3s; white-space: nowrap; font-family: inherit;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .tab-btn.active { background: var(--grad); color: #000; box-shadow: 0 4px 15px var(--accent-glow); }
+        .tab-btn .count {
+            background: rgba(0,0,0,0.15); padding: 2px 6px; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 800;
+        }
+
+        .source-tabs { margin-bottom: 30px; border-bottom: none; background: none; }
+        .source-tab {
+            border: 1px solid var(--border);
+        }
+        .source-tab.active {
+            border-color: var(--accent);
+            background: rgba(0, 255, 163, 0.1);
+            color: var(--accent);
+        }
+
+        .search-box {
+            width: 100%; background: var(--glass); border: 1px solid var(--border);
+            padding: 14px 22px; color: white; border-radius: 14px;
+            font-family: inherit; font-size: 1rem; backdrop-filter: blur(10px);
+            margin-bottom: 30px; transition: 0.3s;
+        }
+        .search-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+
+        .lead-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 25px; }
+
+        .lead-card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+            padding: 28px; display: flex; flex-direction: column; gap: 14px;
+            transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(20px);
+        }
+        .lead-card:hover {
+            border-color: rgba(0, 255, 163, 0.3); transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+        }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+        .badge {
+            padding: 4px 10px; border-radius: 6px; font-size: 0.7rem;
+            font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #fff;
+        }
+        .score-circle {
+            width: 44px; height: 44px; border-radius: 50%;
+            border: 3px solid var(--score-color); display: flex; align-items: center;
+            justify-content: center; font-weight: 800; font-size: 0.9rem; flex-shrink: 0;
+            color: var(--score-color);
+        }
+        .lead-name { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }
+        .lead-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+        .meta-tag {
+            background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 8px;
+            font-size: 0.8rem; font-weight: 600;
+        }
+        .amount-tag { color: var(--accent); border: 1px solid rgba(0,255,163,0.2); }
+        .region-tag { color: #00d1ff; }
+        .phone-tag { color: var(--text-dim); font-family: 'Space Grotesk', sans-serif; }
+
+        .urgency-row { display: flex; align-items: center; gap: 12px; }
+        .urgency-label { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; font-weight: 600; }
+        .urgency-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+        .urgency-fill { height: 100%; border-radius: 3px; transition: 0.3s; }
+
+        .pain-section { display: flex; flex-direction: column; gap: 6px; }
+        .pain-title { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+        .pain-item {
+            border-left: 3px solid var(--danger); background: rgba(255, 71, 87, 0.05);
+            padding: 8px 14px; font-size: 0.85rem; border-radius: 0 8px 8px 0; line-height: 1.3;
+        }
+
+        .ai-summary {
+            font-size: 0.9rem; color: #ccc; line-height: 1.5;
+            border-left: 3px solid var(--accent); padding-left: 14px;
+        }
+        .response-box {
+            background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+            padding: 14px; border-radius: 12px; font-size: 0.85rem;
+            line-height: 1.5; color: #eee; max-height: 120px; overflow-y: auto;
+        }
+
+        .card-footer { display: flex; gap: 10px; margin-top: auto; flex-wrap: wrap; }
+        .whatsapp-btn {
+            background: var(--grad); color: #000; text-decoration: none;
+            padding: 12px 20px; border-radius: 12px; font-weight: 800;
+            transition: 0.3s; border: none; cursor: pointer; font-family: inherit; font-size: 0.9rem;
+        }
+        .whatsapp-btn:hover { transform: scale(1.03); box-shadow: 0 8px 20px var(--accent-glow); }
+        .contacted-btn {
+            background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+            padding: 12px 20px; border-radius: 12px; cursor: pointer; font-weight: 600;
+            transition: 0.3s; font-family: inherit; font-size: 0.9rem;
+        }
+        .contacted-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .source-link { color: var(--text-dim); text-decoration: none; padding: 12px 0; font-size: 0.85rem; }
+        .source-link:hover { color: var(--accent); }
+
+        .hidden { display: none !important; }
+        .section-empty { text-align: center; padding: 80px 0; color: var(--text-dim); grid-column: 1 / -1; }
+        .section-empty h2 { font-size: 2rem; margin-bottom: 10px; color: white; font-weight: 800; }
+
+        @media (max-width: 768px) {
+            .container { padding: 20px 12px; }
+            header { flex-direction: column; text-align: center; }
+            .logo { font-size: 1.5rem; }
+            .stats-row { justify-content: center; }
+            .lead-grid { grid-template-columns: 1fr; gap: 18px; }
+            .lead-card { padding: 20px; }
+            .lead-name { font-size: 1.2rem; }
+            .card-footer { flex-direction: column; }
+            .whatsapp-btn, .contacted-btn { width: 100%; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Credit Leads CRM</div>
+            <div class="stats-row">
+                <div class="stat-box">
+                    <span class="stat-num hot">${store.stats.hot}</span>
+                    <span class="stat-label">Hot</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-num today">${store.stats.new_today}</span>
+                    <span class="stat-label">Сегодня</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-num total">${store.stats.total}</span>
+                    <span class="stat-label">Всего</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('hot', this)">
+                🔥 Hot <span class="count">${hot.length}</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('new', this)">
+                ✨ Новые <span class="count">${newLeads.length}</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('processing', this)">
+                ⚡️ В работе <span class="count">${processing.length}</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('all', this)">
+                📦 Все <span class="count">${all.length}</span>
+            </button>
+        </div>
+
+        <div class="tabs source-tabs">
+            <button class="tab-btn source-tab active" onclick="filterSource('all', this)">
+                Все источники
+            </button>
+            <button class="tab-btn source-tab" onclick="filterSource('telegram', this)">
+                📱 Telegram
+            </button>
+            <button class="tab-btn source-tab" onclick="filterSource('avito', this)">
+                🅰️ Avito
+            </button>
+            <button class="tab-btn source-tab" onclick="filterSource('maps', this)">
+                📍 Maps
+            </button>
+            <button class="tab-btn source-tab" onclick="filterSource('vk', this)">
+                🟦 VK
+            </button>
+            <button class="tab-btn source-tab" onclick="filterSource('google', this)">
+                🔍 Google
+            </button>
+        </div>
+
+        <input type="text" class="search-box" placeholder="Поиск: имя, регион, тип кредита, сумма..." onkeyup="updateFilters()">
+
+        <div id="section-hot" class="lead-grid">
+            ${hot.length > 0 ? hot.map(l => getLeadCardHtml(l)).join('') : '<div class="section-empty"><h2>Нет горячих лидов</h2><p>Горячие лиды появятся при обнаружении сильных сигналов</p></div>'}
+        </div>
+        <div id="section-new" class="lead-grid hidden">
+            ${newLeads.length > 0 ? newLeads.map(l => getLeadCardHtml(l)).join('') : '<div class="section-empty"><h2>Нет новых лидов</h2><p>Ожидание данных из Telegram, Avito, Maps...</p></div>'}
+        </div>
+        <div id="section-processing" class="lead-grid hidden">
+            ${processing.length > 0 ? processing.map(l => getLeadCardHtml(l)).join('') : '<div class="section-empty"><h2>Пусто</h2><p>Лиды в обработке появятся здесь</p></div>'}
+        </div>
+        <div id="section-all" class="lead-grid hidden">
+            ${all.length > 0 ? all.map(l => getLeadCardHtml(l)).join('') : '<div class="section-empty"><h2>Нет лидов</h2><p>Запустите движок для сбора данных</p></div>'}
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'hot';
+        let currentSource = 'all';
+        let contacted = JSON.parse(localStorage.getItem('contactedLeads') || '[]');
+
+        function switchTab(tab, btn) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-btn:not(.source-tab)').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            ['hot','new','processing','all'].forEach(t => {
+                document.getElementById('section-' + t).classList.toggle('hidden', t !== tab);
+            });
+            updateFilters();
+        }
+
+        function filterSource(source, btn) {
+            currentSource = source;
+            document.querySelectorAll('.source-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            updateFilters();
+        }
+
+        function updateFilters() {
+            const query = document.querySelector('.search-box').value.toLowerCase();
+            document.querySelectorAll('.lead-card').forEach(card => {
+                const searchData = card.getAttribute('data-search').toLowerCase();
+                const source = card.getAttribute('data-id').split(':')[0];
+                const isContacted = contacted.includes(card.getAttribute('data-id'));
+                
+                const matchesSource = currentSource === 'all' || source === currentSource;
+                const matchesQuery = !query || searchData.includes(query);
+                
+                card.classList.toggle('hidden', isContacted || !matchesSource || !matchesQuery);
+            });
+        }
+
+        function markContacted(id) {
+            if (!contacted.includes(id)) {
+                contacted.push(id);
+                localStorage.setItem('contactedLeads', JSON.stringify(contacted));
+            }
+            var card = document.querySelector('.lead-card[data-id="' + id + '"]');
+            if (card) {
+                card.style.opacity = '0.3';
+                var badge = card.querySelector('.status-badge');
+                if (badge) { badge.textContent = 'CONTACTED'; badge.style.background = '#0088cc'; }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            contacted.forEach(function(id) {
+                var card = document.querySelector('.lead-card[data-id="' + id + '"]');
+                if (card) {
+                    card.style.opacity = '0.3';
+                    var badge = card.querySelector('.status-badge');
+                    if (badge) { badge.textContent = 'CONTACTED'; badge.style.background = '#0088cc'; }
+                }
+            });
+        });
+    </script>
+</body>
+</html>`;
+
+    fs.writeFileSync('index.html', html);
+    console.log('[Dashboard] Updated. Hot: ' + hot.length + ', New: ' + newLeads.length + ', Total: ' + all.length);
+}
+
+if (require.main === module) {
+    const store = loadStore();
+    generateDashboard(store);
+}

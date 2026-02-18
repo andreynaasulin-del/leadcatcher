@@ -1,0 +1,7 @@
+playwright
+pandas
+openai
+python-dotenv
+tqdm
+aiohttp
+nest_asyncio
