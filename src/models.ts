@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // === Enums ===
-export const IntentType = z.enum(['mortgage', 'auto', 'business', 'consumer', 'refinance', 'unknown']);
+export const IntentType = z.enum(['mortgage', 'auto', 'business', 'consumer', 'refinance', 'unknown', 'junk']);
 export type IntentType = z.infer<typeof IntentType>;
 
 export const LeadStatus = z.enum(['new', 'processing', 'hot', 'rejected', 'contacted']);

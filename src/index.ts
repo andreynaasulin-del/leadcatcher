@@ -48,6 +48,12 @@ async function processAndStore(rawLeads: RawLead[]): Promise<number> {
 
         safeLog(`[AI] Processing lead from ${raw.source}...`);
         const processed = await processRawLead(raw);
+
+        if (processed.intent_type === 'junk') {
+            safeLog(`[Refuse] Junk/Ad detected: ${uniqueKey}`);
+            continue;
+        }
+
         const scored = scoreLead(processed);
         const isNew = upsertLead(store, scored);
 

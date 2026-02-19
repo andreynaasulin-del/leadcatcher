@@ -7,29 +7,75 @@ import { safeLog } from '../privacy';
 
 // Russian keywords for credit/mortgage intent detection
 const INTENT_KEYWORDS = [
-    // Request patterns
+    // --- Direct Credit/Loans ---
+    'ипотек', 'ипотечн', 'первоначальн', 'первый взнос', 'первоначалка', 'рефинанс',
+    'автокредит', 'лизинг', 'потребительск', 'нужен кредит', 'нужны деньги', 'займ',
+    'кредитн карт', 'рассрочк', 'кредитни', 'кредитовани', 'микрозайм', 'деньги до зарплаты',
+    'кредит наличными', 'деньги на руки', 'взять в долг', 'деньги под процент',
+    'под низкий процент', 'снизить ставку', 'перекредитоваться', 'кредитка', 'кредитные каникулы',
+    'кредитная линия', 'кредитный лимит', 'экспресс-кредит', 'кредит без отказа',
+    'взять лям', 'нужен нал', 'деньги мигом', 'кредит за 1 час', 'помогите с кредитом',
+
+    // --- Business Pain Points (The "Gold" Leads) ---
+    'кассовый разрыв', 'оборотные средства', 'оборотка', 'ликвидность', 'закупка товара',
+    'деньги на товар', 'средства на закупку', 'деньги на проект', 'инвестиции в бизнес',
+    'нужен инвестор', 'ищу инвестора', 'финансирование бизнеса', 'кредит для ип',
+    'кредит для ооо', 'кредит на развитие', 'тендерный займ', 'факторинг', 'овердрафт',
+    'лимит по счету', 'блокировка счета', '115-фз', 'налоги бизнес', 'зарплатный проект',
+    'средства на зарплату', 'масштабирование', 'открытие точки', 'франшиза', 'купить франшизу',
+    'оборудование в лизинг', 'спецтехника в кредит', 'коммерческая недвижимость',
+    'пополнение оборотных', 'кредитование бизнеса', 'займ ип', 'деньги ооо', 'инвестпроект',
+    'стартап инвестиции', 'нужен капитал', 'привлечение инвестиций', 'финансовая помощь бизнесу',
+    'госзакупка кредит', 'исполнение контракта', 'деньги на контракт', 'бизнес ангел',
+
+    // --- Real Estate & Property (Indirect Demand) ---
+    'выкуп доли', 'срочный выкуп', 'обременение', 'залог недвижимости', 'под залог',
+    'деньги под залог', 'переуступка', 'дду', 'новостройка', 'вторичка',
+    'материнский капитал', 'военная ипотека', 'сельская ипотека', 'it ипотека',
+    'семейная ипотека', 'господдержка', 'субсидированная ставка', 'риелтор', 'брокер',
+    'одобрение ипотеки', 'плохая ки', 'кредитная история', 'просрочки', 'суды с банками',
+    'банкротство', 'списание долгов', 'приставы', 'фссп', 'арест имущества',
+    'оценка недвижимости', 'страховка ипотека', 'рефинансирование ипотеки',
+    'как купить без денег', 'ипотека без первого взноса', 'ипотека по двум документам',
+    'залог квартиры', 'залог дома', 'выкуп из-под залога', 'снятие обременения',
+
+    // --- Specific Bank Rejections (Aggressive Broker Leads) ---
+    'банк отказ', 'не одобрил', 'отказали', 'сбер отказ', 'втб отказ', 'тинькофф отказ',
+    'альфа отказ', 'газпромбанк отказ', 'открытие отказ', 'совкомбанк отказ', 'райффайзен отказ',
+    'росбанк отказ', 'мкб отказ', 'псб отказ', 'почта банк отказ', 'дом.рф отказ',
+    'не дают кредит', 'где взять кредит если не одобряют', 'черный список банков',
+    'отказ по скорингу', 'стоп-лист', 'плохая кредитная история', 'помогите очистить ки',
+    'банк заблокировал', 'счета заблокированы', 'отказ по 115фз',
+
+    // --- Indirect Intent & Advise Seekers ---
     'подскажите', 'посоветуйте', 'кто поможет', 'реально ли', 'как получить',
-    'под какой процент', 'какие шансы', 'что делать', 'отказ',
-    // Mortgage
-    'ипотек', 'ипотечн', 'первоначальн', 'первый взнос',
-    'рефинанс', 'банк отказ', 'одобрен',
-    // Auto credit
-    'автокредит', 'кредит на авто', 'машин в кредит', 'лизинг',
-    // Business credit
-    'кредит для бизнес', 'кредит ип', 'кредит ооо', 'бизнес кредит',
-    'оборотн', 'займ для бизнес',
-    // Rejection signals
-    'банк отказал', 'не одобрил', 'отказали в кредит',
-    'сбер отказ', 'втб отказ', 'тинькофф отказ', 'альфа отказ',
+    'какие шансы', 'что делать', 'есть смысл', 'кто сталкивался', 'поделитесь опытом',
+    'нужна консультация', 'ищу специалиста', 'нужен профи', 'помощь в получении',
+    'юрист по кредитам', 'финансовый советник', 'кредитный эксперт', 'финансовый брокер',
+    'в какой банк пойти', 'где одобрят', 'проверенные брокеры', 'брокер по ипотеке',
+
+    // --- Amount & Urgency Signals ---
+    'млн', 'миллион', 'рублей', 'тысяч', 'лям', 'арбуз', 'кэш', 'наличка',
+    'срочно', 'горит', 'вчера', 'сегодня', 'быстро', 'без справок', 'без поручителей',
+    'без подтверждения дохода', 'белая зарплата', 'серая зарплата', 'черная зарплата',
+    'нужно 100к', 'нужно 500к', 'нужен 1 млн', 'нужно 5 млн', 'нужно 10 млн', 'нужно 50 млн',
 ];
 
 const NEGATIVE_KEYWORDS = [
+    // Advertising & Sales (Junk)
     'подписывайтесь', 'канал', 'реклама', 'предлагаю', 'оформлю', 'делаю',
     'гарантия', 'без предоплаты', 'напишите в лс', 'личку', 'вступай',
     'продам', 'купли', 'сотрудничество', 'выплата', 'комиссия за',
     'курсы', 'обучаю', 'бесплатно', 'акция', 'розыгрыш', 'скидка',
     'накрутка', 'продвижение', 'инвестируй', 'доход', 'crypto', 'крипта',
-    'trading', 'сигналы', 'обучение',
+    'trading', 'сигналы', 'обучение', 'вакансия', 'ищу работу', 'резюме',
+    'удаленка', 'заработок', 'майнинг', 'арбитраж', 'ставки', 'казино',
+    'прогнозы', 'порно', 'знакомства', 'секс', 'вип', 'премиум доступ',
+
+    // Broker Ads (The "Other Side")
+    'поможем получить', 'одобрим за час', 'гарантируем одобрение',
+    'работаем с любой ки', 'лучшие условия у нас', 'пишите нам',
+    'наши услуги', 'наша комиссия', 'честная работа', 'без обмана',
 ];
 
 let client: TelegramClient | null = null;
@@ -69,10 +115,16 @@ function hasIntentSignal(text: string): boolean {
 
     // 3. Filter out messages that look like broker ads (too many emojis or links)
     const emojiCount = (text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g) || []).length;
-    if (emojiCount > 5) return false;
+    if (emojiCount > 10) return false; // Increased from 5 to 10
 
     // 4. Check for positive signals
-    return INTENT_KEYWORDS.some(kw => lower.includes(kw));
+    const hasIntent = INTENT_KEYWORDS.some(kw => lower.includes(kw));
+
+    if (hasIntent) {
+        safeLog(`[TG DEBUG] Match found, but checking length/emojis: Len=${text.length}, Emojis=${emojiCount}`);
+    }
+
+    return hasIntent;
 }
 
 export async function initTelegram(): Promise<TelegramClient> {
@@ -111,38 +163,65 @@ export async function startRealtimeMonitor(
 ): Promise<void> {
     if (!client) throw new Error('Telegram client not initialized. Call initTelegram() first.');
 
-    const chatIds = CONFIG.TELEGRAM_CHATS;
-    safeLog(`[TG] Monitoring ${chatIds.length} chats for credit intent...`);
+    const requestedChats = CONFIG.TELEGRAM_CHATS;
+    const validChats: any[] = [];
+
+    safeLog(`[TG] Validating ${requestedChats.length} chats...`);
+    for (const username of requestedChats) {
+        try {
+            const entity = await client.getEntity(username);
+            validChats.push(entity);
+            safeLog(`[TG] Monitoring enabled for: ${username}`);
+        } catch (e: any) {
+            safeLog(`[TG] Warning: Could not resolve chat "${username}": ${e.message}`);
+        }
+    }
+
+    if (validChats.length === 0 && requestedChats.length > 0) {
+        safeLog('[TG] Error: No valid chats found to monitor. Real-time monitoring will not start.');
+        return;
+    }
+
+    const chatPeers: any[] = [];
+    for (const entity of validChats) {
+        if ((entity as any).id) {
+            chatPeers.push((entity as any).id);
+        }
+    }
 
     client.addEventHandler(async (event: any) => {
-        const message = event.message;
-        if (!message || !message.text) return;
-
-        const text: string = message.text;
-        if (!hasIntentSignal(text)) return;
-
-        const chatId = message.chatId?.toString() || '';
-
-        let chatName = 'Unknown Chat';
         try {
-            const chat = await message.getChat();
-            chatName = (chat as any).title || (chat as any).username || chatName;
-        } catch { }
+            const message = event.message;
+            if (!message || !message.text) return;
 
-        const lead: RawLead = {
-            source: 'telegram',
-            source_lead_id: `${chatId}_${message.id}`,
-            raw_text: text,
-            phone: extractPhone(text),
-            region: extractRegion(text),
-            url: `https://t.me/${chatName.replace(/\s/g, '_')}/${message.id}`,
-            scraped_at: new Date().toISOString(),
-            chat_name: chatName,
-        };
+            const text: string = message.text;
+            if (!hasIntentSignal(text)) return;
 
-        safeLog(`[TG] Intent detected in ${chatName}: "${text.substring(0, 80)}..."`);
-        onNewLead(lead);
-    }, new NewMessage({ chats: chatIds.length > 0 ? chatIds : undefined }));
+            const chatId = message.chatId?.toString() || '';
+
+            let chatName = 'Unknown Chat';
+            try {
+                const chat = await message.getChat();
+                chatName = (chat as any).title || (chat as any).username || chatName;
+            } catch { }
+
+            const lead: RawLead = {
+                source: 'telegram',
+                source_lead_id: `${chatId}_${message.id}`,
+                raw_text: text,
+                phone: extractPhone(text),
+                region: extractRegion(text),
+                url: `https://t.me/${chatName.replace(/\s/g, '_')}/${message.id}`,
+                scraped_at: new Date().toISOString(),
+                chat_name: chatName,
+            };
+
+            safeLog(`[TG] Intent detected in ${chatName}: "${text.substring(0, 80)}..."`);
+            onNewLead(lead);
+        } catch (e: any) {
+            safeLog(`[TG] Event Handler Error: ${e.message}`);
+        }
+    }, new NewMessage({ chats: chatPeers.length > 0 ? chatPeers : undefined }));
 }
 
 export async function disconnectTelegram(): Promise<void> {

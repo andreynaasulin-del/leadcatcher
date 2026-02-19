@@ -28,18 +28,21 @@ export async function processRawLead(raw: RawLead): Promise<CreditLead> {
 Текст: "${raw.raw_text}"
 Регион: ${raw.region || 'не указан'}
 
-Извлеки строго JSON:
-1. intent_type: "mortgage" | "auto" | "business" | "consumer" | "refinance" | "unknown"
-2. amount: максимальная сумма, которую можно "продать" или "выдать" (например "50 млн руб").
-3. region: город.
-4. urgency: 1-10. СТАВЬ 10 ТЕМ, КТО В ОТЧАЯНИИ (срочно, долги, отказ, обременение).
-5. pain_points: боли. Ключевые слова: "срочно нужны деньги", "отказ в банках", "нужны оборотные средства".
-6. name: имя (или "Клиент").
-7. summary: 1 фраза. Почему мы на нем заработаем?
-8. suggested_response: УЛЬТРА-АГРЕССИВНЫЙ ОФФЕР. Никаких "Здравствуйте, мы рады". Сразу в лоб: "Вижу проблему с деньгами под бизнес. Решим за 24 часа. Платите комиссию только по факту. Пишите в WhatsApp прямо сейчас."
-
-ТОЛЬКО JSON. Никаких пояснений.
-`;
+ Извлеки строго JSON:
+ 1. intent_type: "mortgage" | "auto" | "business" | "consumer" | "refinance" | "unknown" | "junk"
+ 2. is_ad: true/false. СТАВЬ true, ЕСЛИ ЭТО РЕКЛАМА БРОКЕРА, АГЕНТА ИЛИ СЕРВИСА (например "Помогу одобрить", "Выкуп авто", "Автоломбард"). Нам нужны только ЗАПРОСЫ от клиентов.
+ 3. amount: максимальная сумма, которую можно "продать" или "выдать" (например "50 млн руб").
+ 4. region: город.
+ 5. urgency: 1-10. СТАВЬ 10 ТЕМ, КТО В ОТЧАЯНИИ (срочно, долги, отказ, обременение).
+ 6. pain_points: боли. Ключевые слова: "срочно нужны деньги", "отказ в банках", "нужны оборотные средства".
+ 7. name: имя (или "Клиент").
+ 8. summary: 1 фраза. Почему мы на нем заработаем? Если это мусор, напиши "Competitor ad".
+ 9. suggested_response: УЛЬТРА-АГРЕССИВНЫЙ ОФФЕР. Никаких "Здравствуйте, мы рады". Сразу в лоб.
+ 
+ ВАЖНО: Если is_ad = true, то set intent_type = "junk".
+ 
+ ТОЛЬКО JSON. Никаких пояснений.
+ `;
 
     try {
         const response = await openai.chat.completions.create({
@@ -52,7 +55,7 @@ export async function processRawLead(raw: RawLead): Promise<CreditLead> {
         const result: AIExtractionResult = JSON.parse(response.choices[0].message.content || '{}');
         const uniqueKey = `${raw.source}:${raw.source_lead_id}`;
 
-        const validIntents: IntentType[] = ['mortgage', 'auto', 'business', 'consumer', 'refinance', 'unknown'];
+        const validIntents: IntentType[] = ['mortgage', 'auto', 'business', 'consumer', 'refinance', 'unknown', 'junk'];
         const intentType: IntentType = validIntents.includes(result.intent_type as IntentType)
             ? (result.intent_type as IntentType)
             : 'unknown';
